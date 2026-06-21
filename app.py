@@ -1,6 +1,9 @@
 import random
 import streamlit as st
 
+from logic_utils import check_guess
+
+
 def get_range_for_difficulty(difficulty: str):
     if difficulty == "Easy":
         return 1, 20
@@ -27,24 +30,6 @@ def parse_guess(raw: str):
         return False, None, "That is not a number."
 
     return True, value, None
-
-
-def check_guess(guess, secret):
-    if guess == secret:
-        return "Win", "🎉 Correct!"
-
-    try:
-        if guess > secret:
-            return "Too High", "📈 Go HIGHER!"
-        else:
-            return "Too Low", "📉 Go LOWER!"
-    except TypeError:
-        g = str(guess)
-        if g == secret:
-            return "Win", "🎉 Correct!"
-        if g > secret:
-            return "Too High", "📈 Go HIGHER!"
-        return "Too Low", "📉 Go LOWER!"
 
 
 def update_score(current_score: int, outcome: str, attempt_number: int):
@@ -93,7 +78,7 @@ if "secret" not in st.session_state:
     st.session_state.secret = random.randint(low, high)
 
 if "attempts" not in st.session_state:
-    st.session_state.attempts = 1
+    st.session_state.attempts = 0   #FIX: start at 0 so first load matches New Game and "attempts left" shows the full limit
 
 if "score" not in st.session_state:
     st.session_state.score = 0
@@ -106,10 +91,15 @@ if "history" not in st.session_state:
 
 st.subheader("Make a guess")
 
-st.info(
-    f"Guess a number between 1 and 100. "
-    f"Attempts left: {attempt_limit - st.session_state.attempts}"
-)
+#FIX: render "attempts left" through a placeholder so it can be filled AFTER the submit handler runs, keeping it in sync within the same rerun instead of lagging one interaction behind
+attempts_left_box = st.empty()
+
+def show_attempts_left():
+    #FIX: single source for the attempts-left display so every code path shows the current count
+    attempts_left_box.info(
+        f"Guess a number between {low} and {high}. "   #FIX: use the difficulty range instead of hardcoded 1-100
+        f"Attempts left: {attempt_limit - st.session_state.attempts}"
+    )
 
 with st.expander("Developer Debug Info"):
     st.write("Secret:", st.session_state.secret)
@@ -132,27 +122,30 @@ with col3:
     show_hint = st.checkbox("Show hint", value=True)
 
 if new_game:
+    st.session_state.status = "playing"               #FIX: reset status so the game-over guard doesn't re-trap the new game
     st.session_state.attempts = 0
-    st.session_state.secret = random.randint(1, 100)
+    st.session_state.score = 0                         #FIX: reset score for a fresh game
+    st.session_state.history = []                      #FIX: clear previous guesses so they don't carry over
+    st.session_state.secret = random.randint(low, high)  #FIX: respect the selected difficulty range instead of hardcoded 1-100
     st.success("New game started.")
     st.rerun()
 
 if st.session_state.status != "playing":
+    show_attempts_left()   #FIX: keep the attempts-left display populated on the game-over screen before stopping
     if st.session_state.status == "won":
         st.success("You already won. Start a new game to play again.")
     else:
         st.error("Game over. Start a new game to try again.")
     st.stop()
 
-if submit:
-    st.session_state.attempts += 1
-
+if submit:                                                   
     ok, guess_int, err = parse_guess(raw_guess)
 
     if not ok:
         st.session_state.history.append(raw_guess)
         st.error(err)
     else:
+        st.session_state.attempts += 1   #FIX: count the attempt only after a successful parse so invalid input doesn't consume one
         st.session_state.history.append(guess_int)
 
         if st.session_state.attempts % 2 == 0:
@@ -186,6 +179,8 @@ if submit:
                     f"The secret was {st.session_state.secret}. "
                     f"Score: {st.session_state.score}"
                 )
+
+show_attempts_left()   #FIX: fill the placeholder after the counter may have been incremented this run, so the displayed value is in sync
 
 st.divider()
 st.caption("Built by an AI that claims this code is production-ready.")
